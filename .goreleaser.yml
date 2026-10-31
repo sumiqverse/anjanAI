@@ -1,0 +1,148 @@
+version: 2
+
+before:
+  hooks:
+    # Build the frontend so it's embedded in the Go binary.
+    - make web
+
+builds:
+  - id: agent-vault
+    binary: agent-vault
+    main: .
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/sumiqverse/anjanAI/cmd.version={{.Version}}
+      - -X github.com/sumiqverse/anjanAI/cmd.commit={{.ShortCommit}}
+      - -X github.com/sumiqverse/anjanAI/cmd.date={{.Date}}
+      - -X github.com/sumiqverse/anjanAI/cmd.posthogAPIKey={{ .Env.POSTHOG_API_KEY }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "agent-vault_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--bundle=${signature}"
+      - "${artifact}"
+
+docker_signs:
+  - cmd: cosign
+    artifacts: manifests
+    output: true
+    args:
+      - "sign"
+      - "--yes"
+      - "${artifact}@${digest}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+# TODO: Re-enable once GO_RELEASER_GITHUB_TOKEN has access to sumiqverse/homebrew-get-cli
+# brews:
+#   - repository:
+#       owner: sumiqverse
+#       name: homebrew-get-cli
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     directory: Formula
+#     homepage: "https://github.com/sumiqverse/anjanAI"
+#     description: "Credential broker for AI agents"
+#     install: |
+#       bin.install "agent-vault"
+#     test: |
+#       system "#{bin}/agent-vault", "version"
+
+dockers:
+  - id: amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    image_templates:
+      - "sumiqverse/anjanAI:{{ .Version }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    extra_files:
+      - scripts/docker-entrypoint.sh
+
+  - id: arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    image_templates:
+      - "sumiqverse/anjanAI:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    extra_files:
+      - scripts/docker-entrypoint.sh
+
+docker_manifests:
+  - name_template: "sumiqverse/anjanAI:{{ .Version }}"
+    image_templates:
+      - "sumiqverse/anjanAI:{{ .Version }}-amd64"
+      - "sumiqverse/anjanAI:{{ .Version }}-arm64"
+
+  - name_template: "sumiqverse/anjanAI:latest"
+    image_templates:
+      - "sumiqverse/anjanAI:{{ .Version }}-amd64"
+      - "sumiqverse/anjanAI:{{ .Version }}-arm64"
+
+release:
+  github:
+    owner: sumiqverse
+    name: agent-vault
+  draft: false
+  prerelease: auto
+  make_latest: true
+  footer: |
+    ## Verify
+
+    ```bash
+    # Verify checksum (portable across macOS and Linux)
+    shasum -a 256 --ignore-missing -c checksums.txt
+
+    # Verify signature (requires cosign v2+)
+    cosign verify-blob \
+      --bundle checksums.txt.sig \
+      --certificate-identity-regexp "^https://github\.com/sumiqverse/anjanAI/\.github/workflows/release\.yml@refs/tags/" \
+      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+      checksums.txt
+
+    # Verify Docker image signature (requires cosign)
+    cosign verify sumiqverse/anjanAI:{{ .Version }} \
+      --certificate-identity-regexp "^https://github\.com/sumiqverse/anjanAI/\.github/workflows/release\.yml@refs/tags/" \
+      --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+    ```
