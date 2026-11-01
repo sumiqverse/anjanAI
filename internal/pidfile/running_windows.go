@@ -14,7 +14,7 @@ func isRunning(pid int) bool {
 	if err != nil {
 		return false
 	}
-	defer syscall.CloseHandle(h)
+	defer func() { _ = syscall.CloseHandle(h) }()
 
 	var exitCode uint32
 	if err := syscall.GetExitCodeProcess(h, &exitCode); err != nil {

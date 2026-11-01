@@ -98,7 +98,7 @@ func (s *Server) handleVaultContext(w http.ResponseWriter, r *http.Request) {
 		summary := credentialStoreDetailSummary(cs)
 		// Config and LastSyncError can both carry upstream topology
 		// (paths/keys); gate on the same role check that gates create.
-		if vaultRole != "admin" && !actor.IsOwner() {
+		if !s.callerCanSeeVaultUpstream(ctx, actor, vault.ID) {
 			summary.Config = nil
 			summary.LastSyncError = ""
 		}
@@ -374,7 +374,9 @@ func (s *Server) handleVaultCreate(w http.ResponseWriter, r *http.Request) {
 	// no-access actors are blocked so they can't escalate by becoming admin
 	// of a brand-new vault they just created.
 	actor, err := s.requireInstanceMember(w, r)
-	
+	if err != nil {
+		return
+	}
 
 	var req vaultCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -725,7 +727,9 @@ func (s *Server) handleVaultLeave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actor, err := s.requireVaultAccess(w, r, vault.ID)
-	
+	if err != nil {
+		return
+	}
 	if actor == nil {
 		jsonError(w, http.StatusForbidden, "Scoped sessions cannot leave a vault")
 		return
@@ -755,7 +759,9 @@ func (s *Server) handleVaultLeave(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVaultJoin(w http.ResponseWriter, r *http.Request) {
 	actor, err := s.requireOwnerActor(w, r)
-	
+	if err != nil {
+		return
+	}
 
 	name := r.PathValue("name")
 	ctx := r.Context()
@@ -798,13 +804,3 @@ func (s *Server) handleInstanceCredentialStores(w http.ResponseWriter, r *http.R
 	})
 }
 
-// handleVaultSyncNow is a no-op for built-in vaults.
-func (s *Server) handleVaultSyncNow(w http.ResponseWriter, r *http.Request) {
-	vaultName := r.PathValue("name")
-	vault, err := s.store.GetVault(r.Context(), vaultName)
-	if err != nil || vault == nil {
-		jsonError(w, http.StatusNotFound, "Vault not found")
-		return
-	}
-	jsonCodedError(w, http.StatusBadRequest, "not_external", "Vault is using built-in credential store; sync not applicable")
-}
