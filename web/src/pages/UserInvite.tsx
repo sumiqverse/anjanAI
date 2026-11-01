@@ -116,7 +116,7 @@ function ErrorSection({ title, message }: { title: string; message: string }) {
 }
 
 function InviteDetails({ role, vaults }: { role?: string; vaults: InviteVault[] }) {
-  if (!role && vaults.length === 0) return null;
+  if ((!role || role === "member") && vaults.length === 0) return null;
 
   return (
     <div className="bg-bg border border-border rounded-lg p-4 mb-6">
